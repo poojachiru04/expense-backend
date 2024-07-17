@@ -66,9 +66,9 @@ jobs:
       - name: Docker Build
         run: |
           env
-          docker build -t 739561048503.dkr.ecr.us-east-1.amazonaws.com/backend:${GITHUB_SHA} .
-          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 739561048503.dkr.ecr.us-east-1.amazonaws.com
-          docker push 739561048503.dkr.ecr.us-east-1.amazonaws.com/backend:${GITHUB_SHA}
+          docker build -t 339712755999.dkr.ecr.us-east-1.amazonaws.com/backend:${GITHUB_SHA} .
+          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 339712755999.dkr.ecr.us-east-1.amazonaws.com/backend
+          docker push 339712755999.dkr.ecr.us-east-1.amazonaws.com/backend:${GITHUB_SHA}
           sleep 180
           echo COUNT=`aws ecr describe-image-scan-findings --repository-name backend --image-id imageTag=${GITHUB_SHA} --query 'imageScanFindings.enhancedFindings[*]' --output table | grep CRITICAL -c`
           if [ ${COUNT} -gt 0 ]; then echo CRITICAL Vulnerabilities found ; exit 1 ; fi
