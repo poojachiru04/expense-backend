@@ -8,69 +8,70 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build
-        run: sleep 1
-
-  unit-tests:
-    runs-on: self-hosted
-    needs: [build]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run unit tests
-        run: echo Unit Tests
-
-  integration-tests:
-    runs-on: self-hosted
-    needs: [build]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run integration-tests
-        run: echo integration-tests
-
-  code-quality:
-    runs-on: self-hosted
-    needs: [build]
-    steps:
-      - name: Import Secrets
-        id: secrets
-        uses: hashicorp/vault-action@v2
-        with:
-          url: https://vault.poodevops.online:8200
-          token: ${{ secrets.VAULT_TOKEN }}
-          tlsSkipVerify: true
-          secrets: |
-            infra-secrets/data/sonarqube password | sonarqube_password ;
-      - uses: actions/checkout@v4
-      - name: Start code quality
-        run: echo /sonar-scanner/sonar-scanner-6.1.0.4477-linux-x64/bin/sonar-scanner  -Dsonar.host.url=http://sonarqube-internal.poodevops.online:9000 -Dsonar.login=admin -Dsonar.password=${{ env.sonarqube_password }} -Dsonar.projectKey=expense-backend -Dsonar.qualitygate.wait=true
-
-  security-checks:
-    runs-on: self-hosted
-    needs: [build]
-    steps:
-      - uses: actions/checkout@v4
-      - name: CheckMarx SCA
-        run: echo Hello, world!
-      - name: CheckMarx SAST
-        run: echo Hello, world!
+  #   build:
+  #     runs-on: self-hosted
+  #     steps:
+  #       - uses: actions/checkout@v4
+  #       - name: Build
+  #         run: sleep 1
+  #
+  #   unit-tests:
+  #     runs-on: self-hosted
+  #     needs: [build]
+  #     steps:
+  #       - uses: actions/checkout@v4
+  #       - name: Run unit tests
+  #         run: echo Unit Tests
+  #
+  #   integration-tests:
+  #     runs-on: self-hosted
+  #     needs: [build]
+  #     steps:
+  #       - uses: actions/checkout@v4
+  #       - name: Run integration-tests
+  #         run: echo integration-tests
+  #
+  #   code-quality:
+  #     runs-on: self-hosted
+  #     needs: [build]
+  #     steps:
+  #       - name: Import Secrets
+  #         id: secrets
+  #         uses: hashicorp/vault-action@v2
+  #         with:
+  #           url: https://vault.poodevops.online:8200
+  #           token: ${{ secrets.VAULT_TOKEN }}
+  #           tlsSkipVerify: true
+  #           secrets: |
+  #               infra-secrets/data/sonarqube password | sonarqube_password ;
+  #       - uses: actions/checkout@v4
+  #       - name: Start code quality
+  #         run: echo /sonar-scanner/sonar-scanner-6.1.0.4477-linux-x64/bin/sonar-scanner  -Dsonar.host.url=http://sonarqube-internal.poodevops.online:9000 -Dsonar.login=admin -Dsonar.password=${{ env.sonarqube_password }} -Dsonar.projectKey=expense-backend -Dsonar.qualitygate.wait=true
+  #
+  #   security-checks:
+  #     runs-on: self-hosted
+  #     needs: [build]
+  #     steps:
+  #       - uses: actions/checkout@v4
+  #       - name: CheckMarx SCA
+  #         run: echo Hello, world!
+  #       - name: CheckMarx SAST
+  #         run: echo Hello, world!
 
   docker-build:
     runs-on: self-hosted
-    needs: [security-checks, code-quality, integration-tests, unit-tests]
+    #needs: [security-checks, code-quality, integration-tests, unit-tests]
     steps:
       - uses: actions/checkout@v4
       - name: Docker Build
         run: |
-          env
           docker build -t 339712755999.dkr.ecr.us-east-1.amazonaws.com/backend:${GITHUB_SHA} .
-          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 339712755999.dkr.ecr.us-east-1.amazonaws.com/backend
+          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 339712755999.dkr.ecr.us-east-1.amazonaws.com
           docker push 339712755999.dkr.ecr.us-east-1.amazonaws.com/backend:${GITHUB_SHA}
-          sleep 180
-          echo COUNT=`aws ecr describe-image-scan-findings --repository-name backend --image-id imageTag=${GITHUB_SHA} --query 'imageScanFindings.enhancedFindings[*]' --output table | grep CRITICAL -c`
+          aws ecr start-image-scan --repository-name backend --image-id imageTag=${GITHUB_SHA} || true
+          aws ecr wait image-scan-complete --repository-name backend --image-id imageTag=${GITHUB_SHA}
+
+          COUNT=`aws ecr describe-image-scan-findings --repository-name backend --image-id imageTag=${GITHUB_SHA} --query 'imageScanFindings.findingSeverityCounts.CRITICAL'`
           if [ ${COUNT} -gt 0 ]; then echo CRITICAL Vulnerabilities found ; exit 1 ; fi
 
   #
@@ -79,8 +80,13 @@ jobs:
     needs: [docker-build]
     steps:
       - uses: actions/checkout@v4
-      - name: Run a one-line script
-        run: echo Hello, world!
+      - name: Checkout helm repo
+        uses: actions/checkout@v4
+        with:
+          repository: poojachiru04/expense-helm
+          path: helm
+      - name: Create App
+        run: cd helm ; bash argo.sh dev backend ${GITHUB_SHA}
 
   deploy-to-qa:
     runs-on: self-hosted
